@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1e5aa0">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<title>Arcosur Radar</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--tx:#1a1d21;--mut:#667;--ac:#1e5aa0}
+@media(prefers-color-scheme:dark){:root{--bg:#14171a;--card:#1f2428;--tx:#eceff2;--mut:#9aa3ab;--ac:#6aa9ee}}
+*{box-sizing:border-box}
+body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{background:#1e5aa0;color:#fff;padding:14px 16px;font-weight:600}
+nav{display:flex;background:var(--card);position:sticky;top:0;z-index:5}
+nav button{flex:1;padding:12px;border:0;background:none;color:var(--mut);font-size:15px;border-bottom:3px solid transparent}
+nav button.on{color:var(--ac);border-color:var(--ac)}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:10px 12px}
+.chip{white-space:nowrap;padding:6px 12px;border-radius:16px;border:1px solid var(--mut);background:none;color:var(--tx);font-size:14px}
+.chip.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.card{background:var(--card);margin:8px 12px;padding:12px;border-radius:10px}
+.card a{color:var(--tx);text-decoration:none;font-weight:600}
+.meta{color:var(--mut);font-size:13px;margin-top:6px}
+#mapa{height:calc(100vh - 110px)}
+.vacio{text-align:center;color:var(--mut);padding:30px}
+</style>
+</head>
+<body>
+<header>Arcosur Radar</header>
+<nav><button id="b1" class="on">Novedades</button><button id="b2">Mapa</button></nav>
+<section id="v1">
+<div class="chips" id="fs"></div>
+<div class="chips" id="ff"></div>
+<div id="lista"></div>
+</section>
+<section id="v2" hidden><div id="mapa"></div></section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+let datos=[],fSrc='Todas',fFase='Todas',mapa=null;
+const $=id=>document.getElementById(id);
+function chips(el,vals,act,fn){
+  el.innerHTML='';
+  ['Todas',...vals].forEach(v=>{
+    const b=document.createElement('button');
+    b.className='chip'+(v===act?' on':'');b.textContent=v;
+    b.onclick=()=>{fn(v);pintar()};el.appendChild(b);
+  });
+}
+function pintar(){
+  chips($('fs'),[...new Set(datos.map(d=>d.s))],fSrc,v=>fSrc=v);
+  chips($('ff'),[...new Set(datos.flatMap(d=>d.f))],fFase,v=>fFase=v);
+  const L=datos.filter(d=>(fSrc==='Todas'||d.s===fSrc)&&(fFase==='Todas'||d.f.includes(fFase)));
+  $('lista').innerHTML=L.length?L.map(d=>`<div class="card"><a href="${d.l}" target="_blank" rel="noopener">${d.t.replace(/</g,'&lt;')}</a><div class="meta">${d.s} · ${d.d}${d.f.length?' · '+d.f.join(', '):''}</div></div>`).join(''):'<div class="vacio">Sin resultados. Se actualiza cada día.</div>';
+}
+async function cargar(){
+  try{datos=await (await fetch('hallazgos.json?'+Date.now())).json()}catch(e){}
+  pintar();
+}
+function vista(n){
+  $('v1').hidden=n!==1;$('v2').hidden=n!==2;
+  $('b1').className=n===1?'on':'';$('b2').className=n===2?'on':'';
+  if(n===2)iniciarMapa();
+}
+$('b1').onclick=()=>vista(1);$('b2').onclick=()=>vista(2);
+function marcas(){try{return JSON.parse(localStorage.getItem('marcas')||'[]')}catch(e){return[]}}
+function guardar(m){try{localStorage.setItem('marcas',JSON.stringify(m))}catch(e){}}
+function iniciarMapa(){
+  if(mapa){mapa.invalidateSize();return}
+  mapa=L.map('mapa').setView([41.585,-0.92],14);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(mapa);
+  const ms=marcas();
+  const poner=(m,i)=>{
+    const mk=L.marker([m.a,m.o]).addTo(mapa).bindPopup(`<b>${m.n.replace(/</g,'&lt;')}</b><br><button>Borrar</button>`);
+    mk.on('popupopen',e=>{e.popup.getElement().querySelector('button').onclick=()=>{
+      const x=marcas().filter(k=>!(k.a===m.a&&k.o===m.o));guardar(x);mapa.removeLayer(mk)}});
+  };
+  ms.forEach(poner);
+  mapa.on('click',e=>{
+    const n=prompt('Nombre o nota de la parcela:');
+    if(!n)return;
+    const m={a:e.latlng.lat,o:e.latlng.lng,n};
+    const x=marcas();x.push(m);guardar(x);poner(m);
+  });
+}
+cargar();setInterval(cargar,60000);
+</script>
+</body>
+</html>
